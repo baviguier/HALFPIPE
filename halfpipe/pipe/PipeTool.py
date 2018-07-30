@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Half Pipe Code.
 
-Version 0.2.0
+Version 0.3.0
 """
 
 from PySide2 import QtCore
@@ -33,6 +33,8 @@ from pipe.utils import HALFPIPE_PATH_FILE
 from pipe.utils import PROJECT_SETTINGS_FILE
 from pipe.utils import SETTINGS_FILE
 
+from pipe.AssignExport import ExportShaders
+from pipe.AssignImport import ImportShaders
 from pipe.BackUpDialog import BackUp
 from pipe.Prefill import Prefill
 from pipe.ProjectSettingsDialog import ProjectSettings
@@ -40,8 +42,6 @@ from pipe.ReferenceDialog import ReferenceDialog
 from pipe.SaveMasterDialog import SetSaveMasterDialog
 from pipe.SectorSettingsDialog import SectorSettingsDialog
 from pipe.SetProjectDialog import SetProjectDialog
-from pipe.AssignExport import ExportShaders
-from pipe.AssignImport import ImportShaders
 
 from pipe.utils import formatName
 from pipe.utils import formatText
@@ -675,7 +675,7 @@ class Ui_pipeForm(object):
         self.merge_ref_button.setMinimumSize(QtCore.QSize(0, 30))
         self.merge_ref_button.setObjectName("merge_ref_button")
         self.ref_buttons_layout.addWidget(self.merge_ref_button)
-        self.remove_edits_button = QtWidgets.QPushButton(
+        self.replace_ref_button = QtWidgets.QPushButton(
 
         )
         sizePolicy = QtWidgets.QSizePolicy(
@@ -684,12 +684,12 @@ class Ui_pipeForm(object):
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(
-            self.remove_edits_button.sizePolicy().hasHeightForWidth()
+            self.replace_ref_button.sizePolicy().hasHeightForWidth()
         )
-        self.remove_edits_button.setSizePolicy(sizePolicy)
-        self.remove_edits_button.setMinimumSize(QtCore.QSize(0, 30))
-        self.remove_edits_button.setObjectName("remove_edits_button")
-        self.ref_buttons_layout.addWidget(self.remove_edits_button)
+        self.replace_ref_button.setSizePolicy(sizePolicy)
+        self.replace_ref_button.setMinimumSize(QtCore.QSize(0, 30))
+        self.replace_ref_button.setObjectName("replace_ref_button")
+        self.ref_buttons_layout.addWidget(self.replace_ref_button)
         self.delete_ref_button = QtWidgets.QPushButton(
 
         )
@@ -839,7 +839,7 @@ class Ui_pipeForm(object):
         self.namespace_button.setText("Namespace")
         self.reload_ref_button.setText("Reload")
         self.merge_ref_button.setText("Import")
-        self.remove_edits_button.setText("Remove Edits")
+        self.replace_ref_button.setText("Replace")
         self.delete_ref_button.setText("Delete")
 
 
@@ -928,6 +928,7 @@ class PipeTool(QtWidgets.QWidget):
         self.banner_path = r'icons\banner_purple_t.png'
         self.username = 'Undefined'
         self.prefix_dict = {}
+        self.deleting_all = False
 
         # self.reference_checker = mc.scriptJob(
         #     cf=['readingFile', getSelfAndUpdate]
@@ -1331,7 +1332,7 @@ class PipeTool(QtWidgets.QWidget):
         self.setStyleSheetButton(self.ui.namespace_button)
         self.setStyleSheetButton(self.ui.reload_ref_button)
         self.setStyleSheetButton(self.ui.merge_ref_button)
-        self.setStyleSheetButton(self.ui.remove_edits_button)
+        self.setStyleSheetButton(self.ui.replace_ref_button)
         self.setStyleSheetButton(self.ui.delete_ref_button)
         self.setStyleSheetSavingButton(self.ui.saveVersionButton)
         self.setStyleSheetSavingButton(self.ui.saveMasterButton)
@@ -1533,10 +1534,12 @@ class PipeTool(QtWidgets.QWidget):
             self.deleteAllVersions
         )
 
+        self.ui.references_table.clicked.connect(self.referenceItemSelected)
+
         self.ui.namespace_button.clicked.connect(self.namespaceDialog)
         self.ui.reload_ref_button.clicked.connect(self.reloadReference)
         self.ui.merge_ref_button.clicked.connect(self.importOneReference)
-        self.ui.remove_edits_button.clicked.connect(self.removeReferenceEdits)
+        self.ui.replace_ref_button.clicked.connect(self.replaceReference)
         self.ui.delete_ref_button.clicked.connect(self.removeOneReference)
 
         self.timer.timeout.connect(self.updateReferenceTable)
@@ -3770,19 +3773,23 @@ class PipeTool(QtWidgets.QWidget):
             )
 
     def deleteAllVersions(self, column):
-        """Delete all versions of a scene."""
+        """Delete all versions of a scene except the last one."""
         number_of_rows = self.ui.sceneHistoryTable.rowCount()
         if number_of_rows < 1:
             mc.warning('Load a Half Pipe project first.')
             return
         if column == 4:
-            question = 'Are you sure you want to delete every version?'
+            question = (
+                "Are you sure you want to delete every version?"
+                " The last version won't be deleted."
+            )
             message_box_return_value = \
                 self.delete_confirmation_dialog(question)
             if not message_box_return_value:
                 return
 
-            for row in range(number_of_rows):
+            for row in range(number_of_rows)[1:]:
+                self.deleting_all = True
                 self.tableClickedDelete(row)
             self.updateHistoryTable()
 
@@ -3795,13 +3802,14 @@ class PipeTool(QtWidgets.QWidget):
             version +
             '.ma')
 
-        question = (
-            "Are you sure you want to delete the {0} folder ?"
-        ).format(filename[:-3])
-        message_box_return_value = \
-            self.delete_confirmation_dialog(question)
-        if not message_box_return_value:
-            return
+        if not self.deleting_all:
+            question = (
+                "Are you sure you want to delete the {0} folder ?"
+            ).format(filename[:-3])
+            message_box_return_value = \
+                self.delete_confirmation_dialog(question)
+            if not message_box_return_value:
+                return
 
         path_to_delete = os.path.normpath(os.path.join(
             self.current_scene_path,
@@ -3854,6 +3862,8 @@ class PipeTool(QtWidgets.QWidget):
             maya.mel.eval(message)
         else:
             mc.warning('Could not delete version. Path does not exist.')
+
+        self.deleting_all = False
 
     def tableClickedOpen(self, row, column):
         """Open on older version."""
@@ -4135,6 +4145,12 @@ class PipeTool(QtWidgets.QWidget):
                 namespace = mc.referenceQuery(path, namespace=True)
                 self.selected_ref_names.append(namespace)
 
+        # Select all selected references in the table
+        mc.select(clear=True)
+        for name_ref in self.selected_ref_names:
+            name = str(name_ref + ":*")
+            mc.select(name, add=True)
+
     def namespaceDialog(self):
         """Open a dialog to change the namespace (Reference Table)."""
         self.referenceItemSelected()
@@ -4209,16 +4225,27 @@ class PipeTool(QtWidgets.QWidget):
             maya.mel.eval(message)
             self.updateReferenceTable()
 
-    def removeReferenceEdits(self):
+    def replaceReference(self):
         """Remove edits on a reference (Reference Table)."""
         self.referenceItemSelected()
         if self.number_of_ref_rows_selected == 0:
             mc.warning('Select at least one reference.')
         else:
-            for path in self.ref_paths:
-                mc.referenceEdit(path, removeEdits=True)
-            message = 'print "Successfully removed reference(s) edits."'
+            selected_file = QtWidgets.QFileDialog.getOpenFileName(
+                    self,
+                    "Select a Maya Scene",
+                    self.project_path,
+                    "Maya files (*.ma *.mb)"
+                )
+
+            for ref_name in self.selected_ref_names:
+                name = str(ref_name + "RN")
+                if not selected_file[0] == ('') is not None:
+                    mc.file(selected_file[0], loadReference=name)
+
+            message = 'print "Reference(s) uccessfully replaced."'
             maya.mel.eval(message)
+            self.updateReferenceTable()
 
     def removeOneReference(self):
         """Remove selected reference (Reference Table)."""
@@ -4282,13 +4309,11 @@ class PipeTool(QtWidgets.QWidget):
 
     def exportShaders(self):
         """Export a maya scene and the link text."""
-        dialog = ExportShaders(self, projectPath=self.full_project_path)
-        dialog.exec_()
+        ExportShaders.launch()
 
     def assembleShaders(self):
         """Assign shaders with the given links file."""
-        dialog = ImportShaders(self, projectPath=self.full_project_path)
-        dialog.exec_()
+        ImportShaders.launch()
 
     def incrementalSave(self):
         """Save .ma scene in the selected scene versions folder."""
